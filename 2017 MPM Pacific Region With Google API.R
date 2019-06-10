@@ -76,7 +76,7 @@ RegFE$OHR.State <- NULL
 RegAstDeduped <- RegAst[!duplicated(RegAst$RegAstyx),]
 RegAstDeduped$postpostnum = 1:nrow(RegAstDeduped)
 RegAstDeduped <- as.data.frame(RegAstDeduped)
-set.api.key("AIzaSyCiIUU5K9YGfcreFxJVa-x44ib4rXQr-qU")
+set.api.key("XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX")
 # Pacificwidev2 <- gmapsdistance(RegFE$ENGyx, RegAstDeduped$RegAstyx,
 #                                         combinations = "all",
 #                                         mode = "driving",
@@ -85,7 +85,7 @@ set.api.key("AIzaSyCiIUU5K9YGfcreFxJVa-x44ib4rXQr-qU")
 #                                         dep_time = "05:00:00",)
 
 
-setwd("C:/Users/212617316/Desktop/K-MEANS")
+setwd("C:/Users/XXXXXXXXXXXXXXXXXX")
 #save(Pacificwide, file = "3.7.18pacificMPMOPTBYrdsv1.RData")
 load("3.7.18pacificMPMOPTBYrdsv1.RData")
 
