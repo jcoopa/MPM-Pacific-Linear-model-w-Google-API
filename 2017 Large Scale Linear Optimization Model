@@ -1,0 +1,149 @@
+#Librarys to be loaded before use
+#devtools::install_github("rodazuero/gmapsdistance@058009e8d77ca51d8c7dbc6b0e3b622fb7f489a2")# used the github version, Normal version didn't for me
+library(githubinstall)
+library(devtools)
+library(tidyverse)
+library(gmapsdistance)
+library(lpSolve)
+library(zipcode)
+library(ggplot2)
+library(mapdata)
+
+
+#Load, clean, merge and otherwise prep health care client names locations ext####
+#Load client name, address and zip (zip must be in it's own column called zip) and region
+setwd("C:/Users/coopej20/Desktop/R/WD")
+HealthCareCenters <- read.csv(file="C:/Users/coopej20/Desktop/R/WD/Tesla Dealers.csv", 
+                   header=TRUE, 
+                   sep=",")
+
+#Extract Pacific Region only, More regions make it un-managable Apxomimatly 3000 locations per region
+HCcentfiltered <- HealthCareCenters[HealthCareCenters$Service.Region %in% c("REGION_PACIFIC_WEST"),]
+
+#clean HCEquip/repairmen data
+HealthCareEquipment3 <- HCcentfiltered
+HealthCareEquipment3$zip <- clean.zipcodes(HealthCareEquipment3$Primary.Postal.Code)
+HealthCareEquipment <- HealthCareEquipment3[!duplicated(HealthCareEquipment3$zip),]
+HealthCareEquipment<- merge(HealthCareEquipment, zipcode, all.x=TRUE,by='zip')
+
+#clean up HCEquip/repairmen data 2, change it to match other data sets i.e. repairmen and zipcode data. 
+HlthCrCenters <- HealthCareEquipment
+HlthCrCenters$HCEquipmentLon <- as.numeric(HlthCrCenters$longitude)
+HlthCrCenters$HCEquipmentLat <- as.numeric(HlthCrCenters$latitude)
+HlthCrCenters <- within(HlthCrCenters, HlthCrCentersyx <- paste(HCEquipmentLat, HCEquipmentLon, sep = "+"))
+HlthCrCenters <- data.frame(HlthCrCenters)
+HlthCrCenters[ ,c('longitude', 'latitude')] <- NULL
+
+#this adds a number to every group of HlthCrCentersyx, hopeing to tie back to avoid NA's in data
+HlthCrCenters <- transform(HlthCrCenters,id=as.numeric(factor(HlthCrCentersyx)))
+
+#HCEquip data, remove duplicates, set as data frame, run google API. removeing duplicates means that the location of each peice of equipment is only calculated once in the linear model and when running google maps API
+HlthCrCentersDeduped <- HlthCrCenters[!duplicated(HlthCrCenters$HlthCrCentersyx),]
+HlthCrCentersDeduped$RwCount = 1:nrow(HlthCrCentersDeduped)
+HlthCrCentersDeduped <- as.data.frame(HlthCrCentersDeduped)
+
+
+#Load, clean, merge and otherwise prep repairmens names locations ext####
+#Load repairmen names, address and zip (zip must be in it's own column called zip) and region
+RepairMen <- read.csv(file="C:/Users/coopej20/Desktop/R/WD/Tesla Master Shops.csv", 
+                           header=TRUE, 
+                           sep=",")
+
+#Extract Pacific Region only, More regions make it un-managable Aproximatly 40 Addresses
+RepsFiltered <- RepairMen[RepairMen$Region %in% c("Pacific"),]
+
+#Clean up repairmen data and add lat and long based on zip
+data("zipcode")
+RegionRep <- RepsFiltered
+RegionRep$zip <- clean.zipcodes(RegionRep$Zip)
+RegRep <- merge(RegionRep, zipcode, all.x=TRUE, by='zip')
+RegRep$RepsClosestCent1 <- 1:nrow(RegRep)
+RegRep$Zip <- NULL
+
+
+#clean up repairmen data, change column names add new columns for Google API
+Reps <- RegRep
+Reps$RepairLon <- as.numeric(Reps$longitude)
+Reps$RepairLat <- as.numeric(Reps$latitude)
+Reps <- within(Reps, ENGyx <- paste(RepairLat, RepairLon, sep='+'))
+Reps <- data.frame(Reps)
+Reps[ ,c('longitude', 'latitude')] <- NULL
+
+
+#Run the combinations of repairmen and HCEquipments through Google to retreive the driving time between each repairmen and each peice of HCEquipment####
+#aprox 3000 Health care centers, Aprox 30-60 Repairmen address. Takes about 6 hrs for google to complete
+set.api.key("XXXXXXXXXXXXXXX") #Google API Key
+Pacificwide <- gmapsdistance(Reps$ENGyx, HlthCrCentersDeduped$HlthCrCentersyx,
+                               combinations = "all",
+                               mode = "driving",
+                               shape = "wide",
+                               dep_date = "2021-11-02",
+                               dep_time = "05:00:00",)
+
+#save the model, the time consuming and potentially expensive part is complete. 
+save(Pacificwide, file = "RprMenGoogleByRds.RData")
+
+####Prep google output for linear model then Run LM to find out which repairmen is closest to each peice of equipment####
+#load saved model
+load("RprMenGoogleByRds.RData")
+
+#clean up the data, extrac the newly generated time, document row numbers(for later), save as a numeric create matrix for LM. 
+m <- (t(Pacificwide$Time))
+m <- m[-1,]
+tt <- ncol(m)
+rr <- nrow(m)
+m <- mapply(m, FUN=as.numeric)
+m <- matrix(data=m, ncol=tt, nrow=rr)
+
+#Linear Optimization Model: Used to match the repairmen to the closest HCEquipmentship according to Googles estimated driving time at aprox 5AM on Nov 2, 2021
+#3000 locations matched to closest 40-60 repairmen
+gwide <- m
+dir <- "min" #searching for the minimum time between repairmen and HCEquipment
+objective.in <- c(gwide)
+A <- t(rep(1, tt)) %x% diag(rr)
+B <- diag(tt) %x% t(rep(1, rr))
+const.mat <- rbind(A, B, B)
+const.dir <- c(rep("==", rr), rep(">=", tt), rep("<=", tt))
+const.rhs <- c(rep(1, rr), rep(50, tt), rep(110, tt)) #constraint Each repairmen must be assigned atleast 50 HCEquipment but no more than 110
+res <- lp(dir, objective.in, const.mat, const.dir, const.rhs, all.bin = TRUE)
+soln <- matrix(res$solution, rr, tt)
+soln #linear optimized, 1 = yes, 0 = no. the 3 original repairmen are represented as columns, the 24 rows represent the HCEquipment in our data
+
+####Merge all the data together, match the closest repairmen to each peice of HCequipment, includes location/repairmen names address lat long state zip and estimated driving time####
+#using the previously documented row numbers and soln from the LM assign each Repairmen to HCequipment
+e <- m
+RepsClosestCent1 <- apply(soln, 1, which.max)
+h <- as.data.frame(RepsClosestCent1)
+h$RwCount = 1:nrow(h)
+h$time.secs <- apply( h, 1, function(x) e[x[2], x[1]] )
+d <- HlthCrCentersDeduped[,c("RwCount","zip", "HCEquipmentLat", "HCEquipmentLon", "HlthCrCentersyx")]
+x <- merge(d, h, all.x=TRUE, by="RwCount")
+x$RwCount <- NULL
+y <- merge(x, reps, by="RepsClosestCent1")
+y$Primary.Postal.Code <- y$zip.x
+y$zip.x <- NULL
+
+#clean up data one last time, combine data sets 
+FiltHCEquipments <- HealthCareEquipment3
+FiltHCEquipments$Primary.Postal.Code <- clean.zipcodes(FiltHCEquipments$Primary.Postal.Code)#clean up zip codes with zip code package
+HCEquipment <- merge(FiltHCEquipments, y, all.x=TRUE, by="Primary.Postal.Code")
+HCEquipment$Opt.Dist.Mins <- (HCEquipment$time.secs / 60 ) #change driving tiem from seconds to minutes
+names(HCEquipment)[9]<-"Repair.zip" #change column name
+
+####create new data set with just the columns we want, 
+#Create a cleaned up data set and export to CSV
+Closest.RepToHCEquipment <- select(HCEquipment, HCEquipmentLocationName, HCEquipmentLat, HCEquipmentLon, RepairMenName, RepairLat, RepairLon, Opt.Dist.Mins)
+
+#Preview Visualization in R before Viewing in Tableau#
+states <- map_data("state")
+Pacific_Region <- subset(states, region %in% c("california", "oregon", "washington", "arizona", "nevada"))
+
+ggplot(data = Pacific_Region) + 
+  geom_polygon(aes(x = long, y = lat, group = group), fill = "white", color = "grey") + 
+  coord_fixed(1.3)+
+  geom_point(data = Closest.RepToHCEquipment, aes(x =  HCEquipmentLon, y = HCEquipmentLat, col = RepairMenName))+
+  geom_point(data = Closest.RepToHCEquipment, aes(x =  RepairLon, y = RepairLat, pch=RepairMenName))+
+  ggtitle("Linear Optimized assignment with constraints \n \nConstraints = Min 50 Max 110")
+
+#export CSV to distribute assignments and visualize in Tableau
+write.csv(Closest.RepToHCEquipment, file = "Optimized HCEquipment to Master Repair.csv")
