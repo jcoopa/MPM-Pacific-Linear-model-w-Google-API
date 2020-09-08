@@ -1,4 +1,7 @@
 # MPM-Pacific-Linear-model-w-Google-API
+
+## The data that was used for this project was confidential and is not included in this repo. 
+
 MPM - Man Power Model, the name given to this report
 Pacific - the name of one of six regions within the united states. 
 Project Manager - John Cooper
