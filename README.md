@@ -4,7 +4,6 @@
 
 * MPM - Man Power Model, the name given to this report
 * Pacific - the name of one of six regions within the united states. 
-* Project Manager - John Cooper
 * Cost Savings - $1.5M Annually 
 
 ## Problem: 
